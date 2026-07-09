@@ -15,6 +15,16 @@ function Console:init()
 
     self.history = {}
 
+    self.config = {
+        terminal_height = {value = 16, description = 'The height of the console.', type = 'number'},
+    }
+
+    for _,v in pairs(self.config) do
+        v.default = v.value
+    end
+
+    self:reloadConfig()
+
     self.read_offset = 0
 
     self:push("Welcome to [color:cyan]KRISTAL[color:reset]! This is the debug console.")
@@ -32,6 +42,16 @@ function Console:init()
     self:close()
 
     self.env = self:createEnv()
+end
+
+function Console:reloadConfig()
+    for k, v in pairs (Kristal.Config.console or {}) do
+        if self.config[k] then
+            self.config[k].value = v
+        end
+    end
+
+    self.height = self.config.terminal_height.value or self.height
 end
 
 function Console:update()
@@ -71,6 +91,8 @@ function Console:createEnv()
         self:push("moveTo([color:yellow]int[color:reset]) [color:gray]- Move the cursor to line [color:yellow]int[color:gray].")
         self:push("resetPos() [color:gray]- Move the cursor to the last line.")
         self:push("giveItem([color:yellow]str[color:reset]) [color:gray]- Attempts to give item with ID [color:yellow]str[color:gray].")
+        self:push("configView() [color:gray]- View the console's current configuration.")
+        self:push("configSet([color:yellow]key:str[color:reset],[color:yellow]value:any?[color:reset]) [color:gray]- Set the terminal's config [color:yellow]key[color:gray] to [color:yellow]value[color:gray]\nor to its default if absent.")
         self:push("")
         self:push("[color:yellow]Controls:")
         self:push("Arrow keys [color:gray]- Move cursor.")
@@ -104,6 +126,36 @@ function Console:createEnv()
         else
             self:warn("Unable to add item (inventory full?)")
         end
+    end
+
+    function env.configView()
+        local keys = {}
+        for k in pairs(self.config) do
+            keys[#keys+1] = k
+        end
+        table.sort(keys, function (a, b)
+            return tostring(a) < tostring(b)
+        end)
+        self:push("key = [color:yellow]value [color:cyan](default)[color:gray] - Description.\n")
+        for _, k in ipairs(keys) do
+            local v = self.config[k]
+            self:push(("%s = [color:yellow]%s [color:cyan](%s)[color:gray] - %s"):format(k, tostring(v.value), tostring(v.default), v.description))
+        end
+    end
+
+    function env.configSet(key, value)
+        if not self.config[key] then
+            self:push(('[color:red][ERROR] Option with key \'[color:yellow]%s[color:red]\' does not exit.'):format(tostring(key)))
+            return
+        elseif type(value) ~= self.config[key].type and type(value) ~= 'nil' then
+            self:push(('[color:red][ERROR] Invalid value type. Must be [color:cyan]%s[color:red] instead of [color:yellow]%s[color:red].'):format(self.config[key].type, type(value)))
+            return
+        end
+        self.config[key].value = value or self.config[key].default
+        Kristal.Config['console'] = Kristal.Config['console'] or {}
+        Kristal.Config['console'][key] = value
+        self:reloadConfig()
+        Kristal.saveConfig()
     end
 
     setmetatable(env, {
