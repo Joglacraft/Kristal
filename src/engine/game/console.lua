@@ -6,7 +6,7 @@ function Console:init()
     super.init(self, 0, 0)
     self.layer = 10000000 - 1
 
-    self.height = 12
+    self.height = nil -- This is defined in self.config.terminal_height.value
 
     self.font_size = 16
     self.font_name = "main_mono"
@@ -16,7 +16,11 @@ function Console:init()
     self.history = {}
 
     self.config = {
-        terminal_height = {value = 16, description = 'The height of the console.', type = 'number'},
+        terminal_height = {value = 12, description = 'The height of the console.', type = 'number'},
+        save_command_history = {value = 0, description = 'Maximum amount of commands to save\nbetween sessions', type = 'number'},
+        save_history = {value = 0, description = 'Maximum amount of lines to save between sessions', type = 'number'},
+        reset_scroll_on_execute = {value = true, description = 'Scroll back the console to\nthe last line when executing a script', type = 'boolean'},
+        show_line_numbers = {value = false, descripiton = 'Display absolute line numbers.', type = 'boolean'}
     }
 
     for _,v in pairs(self.config) do
@@ -26,10 +30,6 @@ function Console:init()
     self:reloadConfig()
 
     self.read_offset = 0
-
-    self:push("Welcome to [color:cyan]KRISTAL[color:reset]! This is the debug console.")
-    self:push("You can enter Lua here to be ran! Use [color:gray]help()[color:reset] to open the help menu.")
-    self:push("")
 
     self.command_history = {}
 
@@ -42,6 +42,14 @@ function Console:init()
     self:close()
 
     self.env = self:createEnv()
+
+    self.history = self:loadData('console_history') or self.history
+    self.command_history = self:loadData('command_history') or self.command_history
+
+    self:push("")
+    self:push("Welcome to [color:cyan]KRISTAL[color:reset]! This is the debug console.")
+    self:push("You can enter Lua here to be ran! Use [color:gray]help()[color:reset] to open the help menu.")
+    self:push("")
 end
 
 function Console:reloadConfig()
@@ -52,6 +60,19 @@ function Console:reloadConfig()
     end
 
     self.height = self.config.terminal_height.value or self.height
+end
+
+-- These two lift a lot of code from Kristal.saveData and Kristal.loadData
+function Console:saveData(file, data)
+    love.filesystem.write("/" .. file .. ".json", JSON.encode(data or {}))
+end
+
+function Console:loadData(file)
+    if not love.filesystem.getInfo("settings.json") then return end
+    local full_path = "/" .. file .. ".json"
+    if love.filesystem.getInfo(full_path) then
+        return JSON.decode(love.filesystem.read(full_path))
+    end
 end
 
 function Console:update()
@@ -103,6 +124,7 @@ function Console:createEnv()
 
     function env.clear()
         self.history = {}
+        self:saveData('console_history', self.history)
     end
 
     function env.stack()
@@ -225,7 +247,14 @@ end
 
 function Console:onSubmit()
     self:run(self.input)
-    self.env.resetPos()
+    if self.config.reset_scroll_on_execute.value then
+        self.env.resetPos()
+    end
+    local save_table = {}
+    for i=1, math.min(self.config.save_command_history.value, #self.command_history) do
+        table.insert(save_table, self.command_history[i])
+    end
+    self:saveData('command_history', save_table)
 end
 
 function Console:close()
@@ -311,7 +340,13 @@ function Console:draw()
     end
 
     for line = #self.history - self.height, #self.history do
-        self:print(self.history[line + self.read_offset] or {COLORS.gray, "~" }, 8, y_offset * line_height)
+        local l = TableUtils.copy(self.history[line + self.read_offset], true)
+        if self.config.show_line_numbers.value and l then
+            table.insert(l, 1, {1, 1, 1, 1})
+            table.insert(l, 2, tostring(line + self.read_offset..'. '))
+            
+        end
+        self:print(l or {COLORS.gray, "~" }, 8, y_offset * line_height)
         y_offset = y_offset + 1
     end
     self.color = {1, 1, 1, 1}
@@ -422,6 +457,11 @@ function Console:push(str)
         end
 
         table.insert(self.history, text)
+        local save_table = {}
+        for j=1, math.min(self.config.save_history.value, #self.history) do
+            table.insert(save_table, self.history[j])
+        end
+        self:saveData('console_history', save_table)
     end
 end
 
