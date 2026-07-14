@@ -20,7 +20,7 @@ function Console:init()
         save_command_history = {value = 0, description = 'Maximum amount of commands to save\nbetween sessions', type = 'number'},
         save_history = {value = 0, description = 'Maximum amount of lines to save between sessions', type = 'number'},
         reset_scroll_on_execute = {value = true, description = 'Scroll back the console to\nthe last line when executing a script', type = 'boolean'},
-        show_line_numbers = {value = false, descripiton = 'Display absolute line numbers.', type = 'boolean'}
+        show_line_numbers = {value = false, description = 'Display absolute line numbers.', type = 'boolean'}
     }
 
     for _,v in pairs(self.config) do
@@ -103,9 +103,65 @@ function Console:createEnv()
         self:log(print_string)
     end
 
+    function env.tprint(_o, options)
+        options = options or {}
+        local dept = options.depth or 2
+        local entries = options.entries or 50
+        local max_total = options.max or 100
+        local total = 0
+        local tab = options.tab or '  '
+        if options.color then
+            if type(options.color) == 'table' then
+                ---@type table|string
+                options.color = ColorUtils.RGBToHex(TableUtils.unpack(options.color))
+            end
+        else
+            options.color = 'cyan'
+        end
+        local color = '[color:'..options.color..']'
+        local sort_func = options.sort_func or function (a, b)
+            if type(a) == 'number' and type(b) == 'number' then return a < b end
+            return tostring(a) < tostring(b)
+        end
+
+        local function f(o, i, k)
+            i = i or 0
+            k = k or ''
+            local t = 1
+            if type(o) ~= 'table' then
+                Kristal.Console:push(string.rep(tab,i)..tostring(k)..': '..color..tostring(o))
+                total = total + 1
+                return
+            end
+            Kristal.Console:push(string.rep(tab,i)..tostring(k)..': '..color..'table:')
+            total = total + 1
+            if i > dept then
+                Kristal.Console:push(string.rep(tab,i)..color..'... (more)')
+                return
+            end
+            local keys = {}
+            for kk in pairs(o) do
+                keys[#keys+1] = kk
+            end
+            table.sort(keys, sort_func)
+            for _, kk in ipairs(keys) do
+                local vv = o[kk]
+                f(vv,i+1,kk)
+                t = t + 1
+                if t > entries or total > max_total then
+                    Kristal.Console:push(string.rep(tab,i)..color..'... (more)')
+                    break
+                end
+            end
+        end
+        f(_o)
+    end
+
     function env.help()
         self:push("[color:cyan]KRISTAL[color:reset] help menu:")
         self:push("[color:yellow]Commands:")
+        self:push("print([coolor:yellow]...[color:reset]) [color:gray]- Prints [color:yellow]...[].\nIf it's a class, print the class' name instead.")
+        self:push("tprint([color:yellow]tbl:table[color:reset],[color:yellow]options?:table[color:reset])\n[color:gray]- Prints the contents of [color:yellow]tbl[color:gray].")
         self:push("clear() [color:gray]- Clears the console.")
         self:push("stack() [color:gray]- Shows the stack traceback.")
         self:push("move([color:yellow]int[color:reset]) [color:gray]- Move the cursor [color:yellow]int[color:gray] amount of lines.")
@@ -167,10 +223,10 @@ function Console:createEnv()
 
     function env.configSet(key, value)
         if not self.config[key] then
-            self:push(('[color:red][ERROR] Option with key \'[color:yellow]%s[color:red]\' does not exit.'):format(tostring(key)))
+            self:push(('[color:red][ERROR] Option with key \'[color:yellow]%s[color:red]\' does not exist.'):format(tostring(key)))
             return
         elseif type(value) ~= self.config[key].type and type(value) ~= 'nil' then
-            self:push(('[color:red][ERROR] Invalid value type. Must be [color:cyan]%s[color:red] instead of [color:yellow]%s[color:red].'):format(self.config[key].type, type(value)))
+            self:push(('[color:red][ERROR] Invalid value type. Expected [color:cyan]%s[color:red], got [color:yellow]%s[color:red].'):format(self.config[key].type, type(value)))
             return
         end
         self.config[key].value = value or self.config[key].default
@@ -251,7 +307,7 @@ function Console:onSubmit()
         self.env.resetPos()
     end
     local save_table = {}
-    for i=1, math.min(self.config.save_command_history.value, #self.command_history) do
+    for i=#self.command_history-self.config.save_command_history.value, math.min(self.config.save_command_history.value, #self.command_history) do
         table.insert(save_table, self.command_history[i])
     end
     self:saveData('command_history', save_table)
@@ -458,7 +514,7 @@ function Console:push(str)
 
         table.insert(self.history, text)
         local save_table = {}
-        for j=1, math.min(self.config.save_history.value, #self.history) do
+        for j=math.max(1, #self.history - self.config.save_history.value), math.min(self.config.save_history.value, #self.history) do
             table.insert(save_table, self.history[j])
         end
         self:saveData('console_history', save_table)
